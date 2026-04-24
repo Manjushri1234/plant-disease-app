@@ -2,18 +2,8 @@ import streamlit as st
 import numpy as np
 from PIL import Image
 import time
-from ultralytics import YOLO
 
 st.set_page_config(page_title="Plant Disease Detection", layout="centered")
-
-# -----------------------------
-# Load YOLO model (cached)
-# -----------------------------
-@st.cache_resource
-def load_yolo():
-    return YOLO("yolov8n.pt")
-
-yolo_model = load_yolo()
 
 # -----------------------------
 # Class Names
@@ -46,21 +36,6 @@ recommendations = {
 }
 
 # -----------------------------
-# YOLO Person Detection
-# -----------------------------
-def contains_person(image):
-    results = yolo_model(image)
-
-    for r in results:
-        for box in r.boxes:
-            cls = int(box.cls[0])
-            label = yolo_model.names[cls]
-
-            if label == "person":
-                return True
-    return False
-
-# -----------------------------
 # Simple Leaf Check
 # -----------------------------
 def is_leaf(image):
@@ -74,6 +49,25 @@ def is_leaf(image):
     green_ratio = np.sum(green_mask) / green_mask.size
 
     return green_ratio > 0.15
+
+
+# -----------------------------
+# Simple Human Rejection (Color Heuristic)
+# -----------------------------
+def looks_like_human(image):
+    img = np.array(image)
+
+    red = img[:, :, 0].astype(float)
+    green = img[:, :, 1].astype(float)
+    blue = img[:, :, 2].astype(float)
+
+    # skin-like color detection (basic)
+    skin_mask = (red > 95) & (green > 40) & (blue > 20) & \
+                (red > green) & (red > blue)
+
+    skin_ratio = np.sum(skin_mask) / skin_mask.size
+
+    return skin_ratio > 0.2
 
 
 # -----------------------------
@@ -102,8 +96,8 @@ if image is not None:
     with st.spinner("Analyzing image..."):
         time.sleep(1)
 
-        # STEP 1: Reject human images
-        if contains_person(image):
+        # STEP 1: Reject human-like images
+        if looks_like_human(image):
             st.error("❌ Human detected. Please upload a plant leaf image.")
             st.stop()
 
@@ -112,7 +106,7 @@ if image is not None:
             st.error("❌ Not a plant leaf. Please upload a leaf image.")
             st.stop()
 
-        # STEP 3: Dummy prediction (demo)
+        # STEP 3: Dummy prediction (replace later with real model)
         predicted_class = np.random.choice(class_names)
         confidence = np.random.uniform(0.85, 0.99)
 
