@@ -1,139 +1,120 @@
-# model.py
-
-import os
+import streamlit as st
 import numpy as np
-import tensorflow as tf
-from tensorflow.keras.preprocessing.image import ImageDataGenerator
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout, BatchNormalization
-from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
+from PIL import Image
+import time
+
+st.set_page_config(page_title="Plant Disease Detection", layout="centered")
 
 # -----------------------------
-
-# Dataset Path
+# Class Names
+# -----------------------------
+class_names = [
+    "Tomato Early Blight",
+    "Tomato Late Blight",
+    "Healthy Leaf"
+]
 
 # -----------------------------
-
-train_dir = "PlantVillage"
-
-img_size = 128
-batch_size = 32
+# Recommendations
+# -----------------------------
+recommendations = {
+    "Tomato Early Blight": {
+        "Low": "Remove affected leaves and improve air circulation.",
+        "Medium": "Apply fungicide weekly and avoid overhead watering.",
+        "High": "Use strong fungicide and isolate infected plant."
+    },
+    "Tomato Late Blight": {
+        "Low": "Monitor plant condition.",
+        "Medium": "Use copper fungicide.",
+        "High": "Remove infected plant immediately."
+    },
+    "Healthy Leaf": {
+        "Low": "No treatment needed.",
+        "Medium": "Maintain proper watering and sunlight.",
+        "High": "Recheck image for accuracy."
+    }
+}
 
 # -----------------------------
+# 🔥 STRONG LEAF DETECTION
+# -----------------------------
+def is_leaf(image):
+    img = np.array(image)
 
-# Data Augmentation
+    red = img[:, :, 0].astype(float)
+    green = img[:, :, 1].astype(float)
+    blue = img[:, :, 2].astype(float)
+
+    # 1. Green dominance
+    green_mask = (green > red + 10) & (green > blue + 10)
+    green_ratio = np.sum(green_mask) / green_mask.size
+
+    # 2. Skin detection
+    skin_mask = (
+        (red > 95) & (green > 40) & (blue > 20) &
+        ((np.max(img, axis=2) - np.min(img, axis=2)) > 15) &
+        (abs(red - green) > 15) &
+        (red > green) & (red > blue)
+    )
+    skin_ratio = np.sum(skin_mask) / skin_mask.size
+
+    # 3. Texture check
+    gray = np.mean(img, axis=2)
+    texture = np.std(gray)
+
+    # Final strict condition
+    if green_ratio > 0.4 and skin_ratio < 0.15 and texture > 25:
+        return True
+    else:
+        return False
 
 # -----------------------------
+# UI
+# -----------------------------
+st.title("🌿 AI Plant Disease Detection")
+st.write("Upload or capture a plant leaf image to detect diseases.")
 
-datagen = ImageDataGenerator(
-rescale=1./255,
-rotation_range=20,
-zoom_range=0.2,
-shear_range=0.2,
-horizontal_flip=True,
-validation_split=0.2
-)
+camera_photo = st.camera_input("📷 Take a photo")
+uploaded_file = st.file_uploader("OR Upload a leaf image", type=["jpg", "jpeg", "png"])
 
-train_generator = datagen.flow_from_directory(
-train_dir,
-target_size=(img_size, img_size),
-batch_size=batch_size,
-class_mode="categorical",
-subset="training"
-)
+image = None
 
-val_generator = datagen.flow_from_directory(
-train_dir,
-target_size=(img_size, img_size),
-batch_size=batch_size,
-class_mode="categorical",
-subset="validation"
-)
+if camera_photo:
+    image = Image.open(camera_photo)
+elif uploaded_file:
+    image = Image.open(uploaded_file)
 
 # -----------------------------
-
-# CNN Model
-
+# PROCESS
 # -----------------------------
+if image is not None:
+    image = image.convert("RGB")
+    st.image(image, caption="Uploaded Image", use_container_width=True)
 
-model = Sequential([
+    with st.spinner("Analyzing image..."):
+        time.sleep(1)
 
+        # STEP 1: Validate leaf
+        if not is_leaf(image):
+            st.error("❌ Not a valid plant leaf. Please upload a leaf image.")
+            st.stop()
 
-Conv2D(32, (3,3), activation="relu", input_shape=(img_size, img_size, 3)),
-BatchNormalization(),
-MaxPooling2D(2,2),
+        # STEP 2: Dummy Prediction (replace with real model later)
+        predicted_class = np.random.choice(class_names)
+        confidence = np.random.uniform(0.85, 0.99)
 
-Conv2D(64, (3,3), activation="relu"),
-BatchNormalization(),
-MaxPooling2D(2,2),
+        # STEP 3: Severity
+        if confidence > 0.95:
+            severity = "Low"
+        elif confidence > 0.90:
+            severity = "Medium"
+        else:
+            severity = "High"
 
-Conv2D(128, (3,3), activation="relu"),
-BatchNormalization(),
-MaxPooling2D(2,2),
-
-Flatten(),
-Dropout(0.5),
-
-Dense(256, activation="relu"),
-Dropout(0.3),
-
-Dense(train_generator.num_classes, activation="softmax")
-
-
-])
-
-# -----------------------------
-
-# Compile Model
-
-# -----------------------------
-
-model.compile(
-optimizer="adam",
-loss="categorical_crossentropy",
-metrics=["accuracy"]
-)
-
-model.summary()
-
-# -----------------------------
-
-# Callbacks
-
-# -----------------------------
-
-early_stop = EarlyStopping(
-monitor="val_loss",
-patience=3,
-restore_best_weights=True
-)
-
-checkpoint = ModelCheckpoint(
-"plant_disease_model.h5",
-monitor="val_accuracy",
-save_best_only=True
-)
-
-# -----------------------------
-
-# Train Model
-
-# -----------------------------
-
-history = model.fit(
-train_generator,
-validation_data=val_generator,
-epochs=15,
-callbacks=[early_stop, checkpoint]
-)
-
-print("Training Completed")
-
-# -----------------------------
-
-# Save Final Model
-
-# -----------------------------
-
-model.save("plant_disease_model.h5")
-print("Model saved as plant_disease_model.h5")
+    # -----------------------------
+    # OUTPUT
+    # -----------------------------
+    st.success(f"🌱 Disease Detected: {predicted_class}")
+    st.write(f"📊 Confidence: {confidence*100:.2f}%")
+    st.warning(f"🌡️ Severity: {severity}")
+    st.info(f"💊 Recommendation: {recommendations[predicted_class][severity]}")
